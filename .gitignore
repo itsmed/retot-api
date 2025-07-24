@@ -1,0 +1,42 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Output of go build/go install
+/my-go-app
+
+# Go workspace file (Go 1.18+)
+/go.work
+/go.work.sum
+
+# Test binary files
+*.log
+
+# Dependency management
+/vendor/
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Coverage output
+coverage.out
+
+# Build artifacts
+bin/
+dist/
+
+# env files
+.env
+.env.local
