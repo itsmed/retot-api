@@ -5,8 +5,8 @@ import (
 	"log"
 	"strconv"
 
-	"app/middleware"
 	"app/database"
+	"app/middleware"
 	"app/model"
 
 	"github.com/gofiber/fiber/v2"
@@ -77,9 +77,8 @@ func GetItemFromCategory(c *fiber.Ctx) error {
 
 // CreateItem creates a new item
 func CreateItem(c *fiber.Ctx) error {
-	fmt.Println("create item called", c.Locals("user_id"))
 	var item model.Item
-
+	fmt.Println("create item called", c.Locals("user_id"))
 	// Parse the request body into the Item struct
 	if err := c.BodyParser(&item); err != nil {
 		log.Printf("Error parsing request body: %v", err)
@@ -174,47 +173,69 @@ func GetItemFromId(c *fiber.Ctx) error {
 
 // UpdateItem updates an item with id
 func UpdateItem(c *fiber.Ctx) error {
-	itemId := c.Params("id")
 	db := database.DB
+	itemId := c.Params("id")
 	id, err := strconv.Atoi(itemId)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid item ID"})
 	}
 
+	userID, err := middleware.GetUserID(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+
 	var item model.Item
-	// Fetch the item with the given ID
 	if err := db.First(&item, id).Error; err != nil {
-		log.Printf("Error fetching item with ID %d: %v", id, err)
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"status":  "error",
-			"message": "Item not found",
-			"data":    nil,
-		})
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found"})
 	}
 
-	// Parse the request body into the Item struct
-	if err := c.BodyParser(&item); err != nil {
-		log.Printf("Error parsing request body: %v", err)
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"status":  "error",
-			"message": "Invalid request body",
-			"data":    nil,
-		})
+	if item.UserID != uint(userID) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You do not own this item"})
 	}
 
-	item.ID = uint(id)
+	var input model.Item
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid input"})
+	}
 
-	// Save the updated item to the database
+	item.Name = input.Name
+	item.Description = input.Description
+	item.Price = input.Price
+
 	if err := db.Save(&item).Error; err != nil {
-		log.Printf("Error updating item: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"status":  "error",
-			"message": "Error updating item",
-			"data":    nil,
-		})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update item"})
 	}
 
 	return c.JSON(item)
 }
 
+// DeleteItem deletes an item with id
+func DeleteItem(c *fiber.Ctx) error {
+	itemId := c.Params("id")
+	id, err := strconv.Atoi(itemId)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid item ID"})
+	}
 
+	userID, err := middleware.GetUserID(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+
+	db := database.DB
+	var item model.Item
+	if err := db.First(&item, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found"})
+	}
+
+	if item.UserID != uint(userID) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You do not own this item"})
+	}
+
+	if err := db.Delete(&item).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete item"})
+	}
+
+	return c.JSON(fiber.Map{"status": "success", "message": "Item deleted successfully"})
+}

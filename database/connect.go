@@ -2,12 +2,14 @@ package database
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 
 	"app/config"
 	"app/model"
 
 	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -35,4 +37,12 @@ func ConnectDB() {
 	fmt.Println("Connection Opened to Database")
 	DB.AutoMigrate(&model.Comment{}, &model.Like{}, &model.Post{}, &model.User{})
 	fmt.Println("Database Migrated")
+}
+
+func ConnectDBWithDSN(dsn string) {
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatal("failed to connect test db")
+	}
+	DB = db
 }

@@ -5,9 +5,10 @@ type Item struct {
 	Name        string   `gorm:"not null"`
 	Description string   `gorm:"not null"`
 	Price       float64  `gorm:"not null"`
+	UserID      uint     `gorm:"not null"`
+	User        User     `gorm:"foreignKey:UserID"`
 	CategoryID  uint     `gorm:"not null"`
-	User        User     `gorm:"foreignKey:UserID;references:ID"`
-	Category    Category `gorm:"foreignKey:CategoryID;references:ID"`
-	Reviews     []Review `gorm:"foreignKey:ItemID;references:ID"`
-	Orders      []Order  `gorm:"foreignKey:ItemID;references:ID"`
+	Category    Category `gorm:"foreignKey:CategoryID"`
+	Reviews     []Review `gorm:"foreignKey:ItemID"`
+	Orders      []Order  `gorm:"foreignKey:ItemID"`
 }
