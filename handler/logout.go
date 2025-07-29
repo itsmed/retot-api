@@ -16,6 +16,13 @@ func Logout(c *fiber.Ctx) error {
 		HTTPOnly: true,
 		Secure:   false, // true in production
 	})
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    "",
+		Expires:  time.Now().Add(-time.Hour), // Set expired date
+		HTTPOnly: true,
+		Secure:   false, // true in production
+	})
 	return c.JSON(fiber.Map{
 		"status":  "success",
 		"message": "Logged out successfully",

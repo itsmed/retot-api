@@ -73,12 +73,17 @@ func Login(c *fiber.Ctx) error {
 	var ud UserData
 
 	if err := c.BodyParser(input); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"status": "error", "message": "Error on login request", "errors": err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Error on login request",
+			"errors":  err.Error(),
+		})
 	}
 
 	identity := input.Identity
 	pass := input.Password
-	userModel, err := new(model.User), *new(error)
+	var userModel *model.User
+	var err error
 
 	if valid(identity) {
 		userModel, err = getUserByEmail(identity)
@@ -89,47 +94,122 @@ func Login(c *fiber.Ctx) error {
 	const dummyHash = "$2a$10$7zFqzDbD3RrlkMTczbXG9OWZ0FLOXjIxXzSZ.QZxkVXjXcx7QZQiC" // Dummy hash
 
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"status": "error", "message": "Internal Server Error", "data": err})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal Server Error",
+			"data":    err,
+		})
 	} else if userModel == nil {
-		CheckPasswordHash(pass, dummyHash) // Hash check to prevent timing attacks
+		CheckPasswordHash(pass, dummyHash) // prevent timing attacks
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Invalid identity or password",
+		})
+	}
 
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"status": "error", "message": "Invalid identity or password"})
-	} else {
-		ud = UserData{
-			ID:       userModel.ID,
-			Username: userModel.Username,
-			Email:    userModel.Email,
-			Password: userModel.Password,
-		}
+	ud = UserData{
+		ID:       userModel.ID,
+		Username: userModel.Username,
+		Email:    userModel.Email,
+		Password: userModel.Password,
 	}
 
 	if !CheckPasswordHash(pass, ud.Password) {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"status": "error", "message": "Invalid identity or password"})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Invalid identity or password",
+		})
 	}
 
-	// Create JWT token
-	token := jwt.New(jwt.SigningMethodHS256)
-	claims := token.Claims.(jwt.MapClaims)
-	claims["username"] = ud.Username
-	claims["user_id"] = ud.ID
-	claims["exp"] = time.Now().Add(time.Hour * 72).Unix()
+	// Generate Access Token
+	accessToken := jwt.New(jwt.SigningMethodHS256)
+	accessClaims := accessToken.Claims.(jwt.MapClaims)
+	accessClaims["username"] = ud.Username
+	accessClaims["user_id"] = ud.ID
+	accessClaims["exp"] = time.Now().Add(15 * time.Minute).Unix()
 
-	t, err := token.SignedString([]byte(config.Config("SECRET")))
+	t, err := accessToken.SignedString([]byte(config.Config("SECRET")))
 	if err != nil {
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
 
-	// Set the JWT cookie
+	// Generate Refresh Token
+	refreshToken := jwt.New(jwt.SigningMethodHS256)
+	refreshClaims := refreshToken.Claims.(jwt.MapClaims)
+	refreshClaims["user_id"] = ud.ID
+	refreshClaims["exp"] = time.Now().Add(7 * 24 * time.Hour).Unix()
+
+	rt, err := refreshToken.SignedString([]byte(config.Config("REFRESH_SECRET")))
+	if err != nil {
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
+	// Set both tokens as cookies
 	c.Cookie(&fiber.Cookie{
 		Name:     "jwt",
 		Value:    t,
-		HTTPOnly: false, // set to true in production
-		Secure:   false, // Set to true in production
-		Expires:  time.Now().Add(24 * time.Hour),
+		HTTPOnly: true,
+		Secure:   false, // should be true in production
+		Expires:  time.Now().Add(15 * time.Minute),
+	})
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    rt,
+		HTTPOnly: true,
+		Secure:   false,
+		Expires:  time.Now().Add(7 * 24 * time.Hour),
 	})
 
-	// Return the user data along with the token
-	return c.JSON(fiber.Map{"status": "success", "message": "Success login", "user_id": ud.ID, "username": ud.Username, "email": ud.Email, "token": t})
+	return c.JSON(fiber.Map{
+		"status":   "success",
+		"message":  "Login successful",
+		"user_id":  ud.ID,
+		"username": ud.Username,
+		"email":    ud.Email,
+		"token":    t,
+	})
+}
+
+func RefreshToken(c *fiber.Ctx) error {
+	cookie := c.Cookies("refresh_token")
+	if cookie == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Missing refresh token",
+		})
+	}
+
+	// Verify refresh token
+	token, err := jwt.Parse(cookie, func(token *jwt.Token) (interface{}, error) {
+		return []byte(config.Config("REFRESH_SECRET")), nil
+	})
+	if err != nil || !token.Valid {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Invalid refresh token",
+		})
+	}
+
+	claims := token.Claims.(jwt.MapClaims)
+	userID := uint(claims["user_id"].(float64))
+	username := claims["username"].(string)
+
+	// Generate new access token
+	newAccessToken := jwt.New(jwt.SigningMethodHS256)
+	newAccessClaims := newAccessToken.Claims.(jwt.MapClaims)
+	newAccessClaims["user_id"] = userID
+	newAccessClaims["username"] = username
+	newAccessClaims["exp"] = time.Now().Add(time.Minute * 15).Unix()
+
+	t, err := newAccessToken.SignedString([]byte(config.Config("SECRET")))
+	if err != nil {
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
+	return c.JSON(fiber.Map{
+		"status": "success",
+		"token":  t,
+	})
 }
 
 // Register creates a new user
