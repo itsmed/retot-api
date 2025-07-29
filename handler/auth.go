@@ -16,6 +16,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// HashPassword hashes a plaintext password
+func HashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(hash), err
+}
+
 // CheckPasswords compare password with hash
 func CheckPasswordHash(password, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
@@ -118,7 +124,7 @@ func Login(c *fiber.Ctx) error {
 		Name:     "jwt",
 		Value:    t,
 		HTTPOnly: false, // set to true in production
-		Secure:   false,  // Set to true in production
+		Secure:   false, // Set to true in production
 		Expires:  time.Now().Add(24 * time.Hour),
 	})
 
@@ -158,11 +164,11 @@ func Register(c *fiber.Ctx) error {
 	if existingUser != nil {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"status": "error", "message": "Username already exists"})
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	hash, err := HashPassword(user.Password)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"status": "error", "message": "Error hashing password", "errors": err.Error()})
 	}
-	user.Password = string(hash)
+	user.Password = hash
 	if err := db.Create(&user).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"status": "error", "message": "Error creating user", "errors": err.Error()})
 	}
